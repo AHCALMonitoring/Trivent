@@ -28,15 +28,21 @@
 
 #include "LCTrivent.h"
 
+// -- lcio headers
 #include "IMPL/LCEventImpl.h"
 #include "IMPL/LCCollectionVec.h"
+#include "IMPL/LCFlagImpl.h"
+
+// -- std headers
+#include <limits>
 
 namespace trivent
 {
 
-void LCTriventListener::startProcessingInputEvent(const Event *const pInputEvent)
+LCTriventListener::LCTriventListener() :
+		m_eventNumber(0)
 {
-	this->storeCollectionTypeMap(pInputEvent);
+	/* nop */
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -54,48 +60,38 @@ void LCTriventListener::processReconstructedEvent(const Event *const pReconstruc
 
 //-------------------------------------------------------------------------------------------------
 
-void LCTriventListener::storeCollectionTypeMap(const Event *const pInputEvent)
-{
-	m_collectionTypeMap.clear();
-
-	std::vector<std::string> collectionNames = pInputEvent->getCollectionNames();
-
-	for(std::vector<std::string>::iterator iter = collectionNames.begin(), endIter = collectionNames.end() ;
-			endIter != iter ; ++iter)
-	{
-		UnitSet unitSet;
-		pInputEvent->getUnits(*iter, unitSet);
-
-		// units within the same collection share the same type
-		std::string type = (*unitSet.begin())->getType();
-
-		m_collectionTypeMap[ *iter ] = type;
-	}
-}
-
-//-------------------------------------------------------------------------------------------------
-
 EVENT::LCEvent *LCTriventListener::createLCEvent(const Event *const pReconstructedEvent)
 {
-	if( m_collectionTypeMap.empty() )
-		return 0;
-
+	EVENT::LCEvent *pOriginalLCEvent = (EVENT::LCEvent *) pReconstructedEvent->getUserEvent();
 	IMPL::LCEventImpl *pLCEvent = new IMPL::LCEventImpl();
+
+	pLCEvent->setEventNumber(m_eventNumber);
+	pLCEvent->setRunNumber( pOriginalLCEvent->getRunNumber() );
+	pLCEvent->setTimeStamp( static_cast<EVENT::long64>(pReconstructedEvent->getTimeStamp()) );
+	pLCEvent->setWeight( pOriginalLCEvent->getWeight() );
+	pLCEvent->setDetectorName( pOriginalLCEvent->getDetectorName() );
+
+	if( m_eventNumber == std::numeric_limits<int>::max() )
+		m_eventNumber = 0;
+	else
+		m_eventNumber++;
 
 	std::vector<std::string> collectionNames = pReconstructedEvent->getCollectionNames();
 
 	for(std::vector<std::string>::iterator colIter = collectionNames.begin(), colEndIter = collectionNames.end() ;
 			colEndIter != colIter ; ++colIter)
 	{
-		std::map<std::string, std::string>::iterator findIter = m_collectionTypeMap.find( *colIter );
-
-		if( findIter == m_collectionTypeMap.end() )
-			continue;
+		// get the original lc collection
+		EVENT::LCCollection *pOriginalLCCollection = pOriginalLCEvent->getCollection( *colIter );
 
 		UnitSet unitSet;
 		pReconstructedEvent->getUnits( *colIter , unitSet );
 
-		IMPL::LCCollectionVec *pLCCollection = new IMPL::LCCollectionVec(findIter->second);
+		IMPL::LCFlagImpl lcFlag;
+		lcFlag.setBit(EVENT::LCCollection::BITSubset);
+
+		IMPL::LCCollectionVec *pLCCollection = new IMPL::LCCollectionVec( pOriginalLCCollection->getTypeName() );
+		pLCCollection->setFlag( lcFlag.getFlag() );
 
 		for(UnitSet::iterator iter = unitSet.begin(), endIter = unitSet.end() ;
 				endIter != iter ; ++iter)
@@ -108,10 +104,40 @@ EVENT::LCEvent *LCTriventListener::createLCEvent(const Event *const pReconstruct
 			pLCCollection->addElement( pLCObject );
 		}
 
-		pLCEvent->addCollection( pLCCollection , findIter->first );
+		pLCEvent->addCollection( pLCCollection , *colIter );
+
+		// copy the collection parameters
+		LCTriventListener::copyLCParameters( pOriginalLCCollection->getParameters(), pLCCollection->parameters() );
 	}
 
+	// copy the event parameters
+	LCTriventListener::copyLCParameters( pOriginalLCEvent->getParameters(), pLCEvent->parameters() );
+
 	return pLCEvent;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void LCTriventListener::copyLCParameters( const EVENT::LCParameters &inputParameters , EVENT::LCParameters &targetParameters )
+{
+	EVENT::StringVec intKeys, floatKeys, stringKeys;
+
+	inputParameters.getIntKeys( intKeys );
+	inputParameters.getFloatKeys( floatKeys );
+	inputParameters.getStringKeys( stringKeys );
+
+	EVENT::IntVec dummyInts;
+	EVENT::FloatVec dummyFloats;
+	EVENT::StringVec dummyStrings;
+
+	for(unsigned int i=0 ; i<intKeys.size() ; i++)
+		targetParameters.setValues( intKeys.at(i), inputParameters.getIntVals( intKeys.at(i) , dummyInts ) );
+
+	for(unsigned int i=0 ; i<floatKeys.size() ; i++)
+		targetParameters.setValues( floatKeys.at(i), inputParameters.getFloatVals( floatKeys.at(i) , dummyFloats ) );
+
+	for(unsigned int i=0 ; i<stringKeys.size() ; i++)
+		targetParameters.setValues( stringKeys.at(i), inputParameters.getStringVals( stringKeys.at(i) , dummyStrings ) );
 }
 
 } 

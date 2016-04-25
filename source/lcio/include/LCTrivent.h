@@ -41,11 +41,16 @@ namespace trivent
 {
 
 /**
- *  @brief
+ *  @brief  LCTriventListener class
  */
 class LCTriventListener : public TriventListener
 {
 public:
+	/**
+	 *  @brief  Constructor
+	 */
+	LCTriventListener();
+
 	/**
 	 *  @brief  Notify when a LCEvent has been reconstructed
 	 *
@@ -54,21 +59,21 @@ public:
 	virtual void processReconstructedEvent(EVENT::LCEvent *pLCEvent) = 0;
 
 private:
-	void startProcessingInputEvent(const Event *const pInputEvent);
+	void startProcessingInputEvent(const Event *const pInputEvent) { /* nop */ }
 	void processReconstructedEvent(const Event *const pReconstructedEvent);
 
 	/**
-	 *
-	 */
-	void storeCollectionTypeMap(const Event *const pInputEvent);
-
-	/**
-	 *
+	 *  @brief  Create an LCEvent from the trivent reconstructed event
 	 */
 	EVENT::LCEvent *createLCEvent(const Event *const pReconstructedEvent);
 
+	/**
+	 *  @brief  Copy all parameters from input parameters to target parameters
+	 */
+	static void copyLCParameters( const EVENT::LCParameters &inputParameters , EVENT::LCParameters &targetParameters );
+
 private:
-	std::map<std::string, std::string>     m_collectionTypeMap;
+	int                                    m_eventNumber;
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -86,26 +91,25 @@ public:
 	 *  @brief  Convert elements of a LCCollection to the Trivent structure
 	 *
 	 *  @tparam  The lcio object type. Must inherit from LCObject (use of dynamic_cast)
-	 *  @tparam  ReturnType the returned type of the "get time" function
-	 *  @tparam  ReturnType (Object::*getTime)() the member function of the Object class that will returns the object time
+	 *  @tparam  GetTimeFunction  the member function of the Object class that will returns the object time
 	 *
 	 *  Example :
 	 *
 	 *  @code
 	 *
-	 *  LCTrivent::addCollection<EVENT::RawCalorimeterHit, int, &EVENT::RawCalorimeterHit::getTimeStamp>( pLCEvent , "MyRawCaloHits" , triventEvent);
+	 *  LCTrivent::addCollection<EVENT::RawCalorimeterHit>( pLCEvent , "MyRawCaloHits" , triventEvent, &EVENT::RawCalorimeterHit::getTimeStamp);
 	 *
 	 *  @endcode
 	 */
-	template <typename Object, typename ReturnType, ReturnType (Object::*getTime)() >
-	static void addCollection(EVENT::LCEvent *pLCEvent, const std::string &collectionName, trivent::Event &event);
+	template <typename Object, typename GetTimeFunction>
+	static void addCollection(EVENT::LCEvent *pLCEvent, const std::string &collectionName, trivent::Event &event, GetTimeFunction func);
 };
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 
-template <typename Object, typename ReturnType, ReturnType (Object::*getTime)()>
-inline void LCTrivent::addCollection(EVENT::LCEvent*pLCEvent, const std::string &collectionName, trivent::Event &event)
+template <typename Object, typename GetTimeFunction>
+inline void LCTrivent::addCollection(EVENT::LCEvent *pLCEvent, const std::string &collectionName, trivent::Event &event, GetTimeFunction func)
 {
 	if( ! pLCEvent )
 		return;
@@ -120,8 +124,7 @@ inline void LCTrivent::addCollection(EVENT::LCEvent*pLCEvent, const std::string 
 		if( ! pObject )
 			continue;
 
-		ReturnType timeType = (pObject->*getTime)();
-		uint64_t time = static_cast<uint64_t>( timeType );
+		uint64_t time = static_cast<uint64_t>( (pObject->*func)() );
 
 		trivent::Unit *pUnit = new trivent::Unit( pLCCollection->getTypeName() , time , (void*) pObject );
 		unitSet.insert(pUnit);
